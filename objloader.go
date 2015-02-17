@@ -14,7 +14,7 @@ type Mesh struct {
 	Positions []mgl32.Vec3
 	Normals   []mgl32.Vec3
 	TexCoords []mgl32.Vec3
-	Indices   []uint32
+	Indices   []uint16
 }
 
 type vertex struct {
@@ -36,7 +36,7 @@ func newMesh() Mesh {
 	positions := make([]mgl32.Vec3, 0, 20)
 	normals := make([]mgl32.Vec3, 0, 20)
 	texcoords := make([]mgl32.Vec3, 0, 20)
-	indices := make([]uint32, 0, 20)
+	indices := make([]uint16, 0, 20)
 	return Mesh{Positions: positions, Normals: normals, TexCoords: texcoords, Indices: indices}
 }
 
@@ -158,28 +158,43 @@ func getVec3(vecs []mgl32.Vec3, ndx int64) mgl32.Vec3 {
 	return (vecs)[fixNdx(ndx, len(vecs))]
 }
 
-func addIndices(verts []vertex, mesh *Mesh, vCache *map[vertex]uint32) {
-	for i := range verts {
-		v := verts[i]
-		// In Cache
-		if val, ok := (*vCache)[v]; ok {
-			// Reuse
-			mesh.Indices = append(mesh.Indices, val)
-			continue
-		}
+func addIndex(vert vertex, mesh *Mesh, vCache *map[vertex]uint16) {
+	// In Cache
+	if val, ok := (*vCache)[vert]; ok {
+		// Reuse
+		mesh.Indices = append(mesh.Indices, val)
+		return
+	}
 
-		// Not in cache
-		ndx := uint32(len(mesh.Positions))
-		mesh.Positions = append(mesh.Positions, v.position)
-		mesh.Normals = append(mesh.Normals, v.normal)
-		mesh.TexCoords = append(mesh.TexCoords, v.texCoord)
+	// Not in cache
+	ndx := uint16(len(mesh.Positions))
+	mesh.Positions = append(mesh.Positions, vert.position)
+	mesh.Normals = append(mesh.Normals, vert.normal)
+	mesh.TexCoords = append(mesh.TexCoords, vert.texCoord)
 
-		if len(mesh.Positions) == len(mesh.Normals) && len(mesh.Positions) == len(mesh.TexCoords) {
-			mesh.Indices = append(mesh.Indices, ndx)
-			(*vCache)[v] = ndx
-		} else {
-			panic("Uneven lengths of lists")
+	if len(mesh.Positions) == len(mesh.Normals) && len(mesh.Positions) == len(mesh.TexCoords) {
+		mesh.Indices = append(mesh.Indices, ndx)
+		(*vCache)[vert] = ndx
+	} else {
+		panic("Uneven lengths of lists")
+	}
+}
+
+func addIndices(verts []vertex, mesh *Mesh, vCache *map[vertex]uint16) {
+	add := func(vertices ...vertex) {
+		for v := range vertices {
+			addIndex(vertices[v], mesh, vCache)
 		}
+	}
+
+	// Trianglize face
+	v0 := verts[0]
+	var v1 vertex
+	v2 := verts[1]
+	for i := 2; i < len(verts); i++ {
+		v1 = v2
+		v2 = verts[i]
+		add(v0, v1, v2)
 	}
 }
 
@@ -250,7 +265,7 @@ func LoadObj(filename string) (err error, meshes []Mesh) {
 	tempMesh := newMesh()
 
 	currMesh := 0
-	vCache := make(map[vertex]uint32)
+	vCache := make(map[vertex]uint16)
 
 	file, err := os.Open(filename)
 	if err != nil {
