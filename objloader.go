@@ -4,28 +4,23 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"github.com/go-gl/mathgl/mgl32"
 	"os"
 	"strconv"
 	"strings"
 )
 
-type Vec3 struct {
-	X float32
-	Y float32
-	Z float32
-}
-
 type Mesh struct {
-	Positions []Vec3
-	Normals   []Vec3
-	TexCoords []Vec3
+	Positions []mgl32.Vec3
+	Normals   []mgl32.Vec3
+	TexCoords []mgl32.Vec3
 	Indices   []uint32
 }
 
 type vertex struct {
-	position Vec3
-	normal   Vec3
-	texCoord Vec3
+	position mgl32.Vec3
+	normal   mgl32.Vec3
+	texCoord mgl32.Vec3
 }
 
 type errScanner struct {
@@ -38,9 +33,9 @@ type numParser struct {
 }
 
 func newMesh() Mesh {
-	positions := make([]Vec3, 0, 20)
-	normals := make([]Vec3, 0, 20)
-	texcoords := make([]Vec3, 0, 20)
+	positions := make([]mgl32.Vec3, 0, 20)
+	normals := make([]mgl32.Vec3, 0, 20)
+	texcoords := make([]mgl32.Vec3, 0, 20)
 	indices := make([]uint32, 0, 20)
 	return Mesh{Positions: positions, Normals: normals, TexCoords: texcoords, Indices: indices}
 }
@@ -106,7 +101,7 @@ func parseVertex(line string, mesh *Mesh) {
 		z := fp.parseFloat(es.scan())
 		checkErr(*es, fp, errText)
 
-		v := Vec3{X: x, Y: y, Z: z}
+		v := mgl32.Vec3{x, y, z}
 		mesh.Positions = append(mesh.Positions, v)
 	case "vt":
 		u := fp.parseFloat(es.scan())
@@ -119,7 +114,7 @@ func parseVertex(line string, mesh *Mesh) {
 		}
 		checkErr(*es, fp, errText)
 
-		vt := Vec3{X: u, Y: v, Z: w}
+		vt := mgl32.Vec3{u, v, w}
 		mesh.TexCoords = append(mesh.TexCoords, vt)
 	case "vn":
 		x := fp.parseFloat(es.scan())
@@ -127,7 +122,7 @@ func parseVertex(line string, mesh *Mesh) {
 		z := fp.parseFloat(es.scan())
 		checkErr(*es, fp, errText)
 
-		vn := Vec3{X: x, Y: y, Z: z}
+		vn := mgl32.Vec3{x, y, z}
 		mesh.Normals = append(mesh.Normals, vn)
 	case "vp":
 		// Nothing!
@@ -159,7 +154,7 @@ func fixNdx(ndx int64, maxLen int) (fndx int64) {
 	return
 }
 
-func getVec3(vecs []Vec3, ndx int64) Vec3 {
+func getVec3(vecs []mgl32.Vec3, ndx int64) mgl32.Vec3 {
 	return (vecs)[fixNdx(ndx, len(vecs))]
 }
 
