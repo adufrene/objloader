@@ -273,6 +273,10 @@ func LoadObj(filename string) (err error, meshes []Mesh) {
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := scanner.Text()
+		if len(line) == 0 {
+			// Skip empty lines
+			continue
+		}
 		switch line[0] {
 		case 'v':
 			parseVertex(line, &tempMesh)
