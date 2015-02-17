@@ -9,27 +9,23 @@ import (
 	"strings"
 )
 
-type Vec4 struct {
-	X float32
-	Y float32
-	Z float32
-	W float32
-}
-
 type Vec3 struct {
 	X float32
 	Y float32
 	Z float32
 }
 
-type Vertex struct {
-	Position Vec4
-	Normal   Vec3
-	TexCoord Vec3
+type Mesh struct {
+	Positions []Vec3
+	Normals   []Vec3
+	TexCoords []Vec3
+	Indices   []uint32
 }
 
-type Face struct {
-	Vertices []Vertex
+type vertex struct {
+	position Vec3
+	normal   Vec3
+	texCoord Vec3
 }
 
 type errScanner struct {
@@ -39,6 +35,14 @@ type errScanner struct {
 
 type numParser struct {
 	err error
+}
+
+func newMesh() Mesh {
+	positions := make([]Vec3, 0, 20)
+	normals := make([]Vec3, 0, 20)
+	texcoords := make([]Vec3, 0, 20)
+	indices := make([]uint32, 0, 20)
+	return Mesh{Positions: positions, Normals: normals, TexCoords: texcoords, Indices: indices}
 }
 
 func (s *errScanner) scan() string {
@@ -89,8 +93,7 @@ func checkErr(s errScanner, fp numParser, msg string) {
 	}
 }
 
-func parseVertex(line string, positions *[]Vec4,
-	normals *[]Vec3, texcoords *[]Vec3) {
+func parseVertex(line string, mesh *Mesh) {
 	errText := "Invalid vertex format: " + line
 	s := bufio.NewScanner(strings.NewReader(line))
 	s.Split(bufio.ScanWords)
@@ -101,16 +104,10 @@ func parseVertex(line string, positions *[]Vec4,
 		x := fp.parseFloat(es.scan())
 		y := fp.parseFloat(es.scan())
 		z := fp.parseFloat(es.scan())
-		var w float32
-		if es.scanner.Scan() {
-			w = fp.parseFloat(es.scanner.Text())
-		} else {
-			w = 1.0
-		}
 		checkErr(*es, fp, errText)
 
-		v := Vec4{X: x, Y: y, Z: z, W: w}
-		*positions = append(*positions, v)
+		v := Vec3{X: x, Y: y, Z: z}
+		mesh.Positions = append(mesh.Positions, v)
 	case "vt":
 		u := fp.parseFloat(es.scan())
 		v := fp.parseFloat(es.scan())
@@ -123,7 +120,7 @@ func parseVertex(line string, positions *[]Vec4,
 		checkErr(*es, fp, errText)
 
 		vt := Vec3{X: u, Y: v, Z: w}
-		*texcoords = append(*texcoords, vt)
+		mesh.TexCoords = append(mesh.TexCoords, vt)
 	case "vn":
 		x := fp.parseFloat(es.scan())
 		y := fp.parseFloat(es.scan())
@@ -131,7 +128,7 @@ func parseVertex(line string, positions *[]Vec4,
 		checkErr(*es, fp, errText)
 
 		vn := Vec3{X: x, Y: y, Z: z}
-		*normals = append(*normals, vn)
+		mesh.Normals = append(mesh.Normals, vn)
 	case "vp":
 		// Nothing!
 	default:
@@ -162,16 +159,37 @@ func fixNdx(ndx int64, maxLen int) (fndx int64) {
 	return
 }
 
-func getVec3(vecs *[]Vec3, ndx int64) Vec3 {
-	return (*vecs)[fixNdx(ndx, len(*vecs))]
+func getVec3(vecs []Vec3, ndx int64) Vec3 {
+	return (vecs)[fixNdx(ndx, len(vecs))]
 }
 
-func getVec4(vecs *[]Vec4, ndx int64) Vec4 {
-	return (*vecs)[fixNdx(ndx, len(*vecs))]
+func addIndices(verts []vertex, mesh *Mesh, vCache *map[vertex]uint32) {
+	for i := range verts {
+		v := verts[i]
+		// In Cache
+		if val, ok := (*vCache)[v]; ok {
+			// Reuse
+			mesh.Indices = append(mesh.Indices, val)
+			continue
+		}
+
+		// Not in cache
+		ndx := uint32(len(mesh.Positions))
+		mesh.Positions = append(mesh.Positions, v.position)
+		mesh.Normals = append(mesh.Normals, v.normal)
+		mesh.TexCoords = append(mesh.TexCoords, v.texCoord)
+
+		if len(mesh.Positions) == len(mesh.Normals) && len(mesh.Positions) == len(mesh.TexCoords) {
+			mesh.Indices = append(mesh.Indices, ndx)
+			(*vCache)[v] = ndx
+		} else {
+			panic("Uneven lengths of lists")
+		}
+	}
 }
 
-func parseFace(line string, positions *[]Vec4,
-	normals *[]Vec3, texcoords *[]Vec3) Face {
+func parseFace(line string, mesh *Mesh) (verts []vertex) {
+	verts = make([]vertex, 0, 3)
 	errText := "Invalid face format: " + line
 	s := bufio.NewScanner(strings.NewReader(line))
 	s.Split(bufio.ScanWords)
@@ -179,51 +197,47 @@ func parseFace(line string, positions *[]Vec4,
 		panic(errText)
 	}
 
-	face := Face{Vertices: make([]Vertex, 0, 3)}
-
 	for s.Scan() {
 		data := s.Text()
-		var vert Vertex
 		s := bufio.NewScanner(strings.NewReader(data))
 		s.Split(splitSlash)
 		es := errScanner{scanner: s}
 		ip := numParser{}
+		v := vertex{}
 		switch strings.Count(data, "/") {
 		case 0:
 			ndx, err := strconv.ParseInt(data, 10, 0)
 			if err != nil {
 				panic(errText)
 			}
-			vert.Position = getVec4(positions, ndx)
+			v.position = getVec3(mesh.Positions, ndx)
 		case 1:
 			ndx1 := ip.parseInt(es.scan())
 			ndx2 := ip.parseInt(es.scan())
 			checkErr(es, ip, errText)
-			vert.Position = getVec4(positions, ndx1)
-			vert.TexCoord = getVec3(texcoords, ndx2)
+			v.position = getVec3(mesh.Positions, ndx1)
+			v.texCoord = getVec3(mesh.TexCoords, ndx2)
 		case 2:
 			ndx1 := ip.parseInt(es.scan())
+			v.position = getVec3(mesh.Positions, ndx1)
 			if 1 == strings.Count(data, "//") {
 				es.advance()
 				ndx2 := ip.parseInt(es.scan())
 				checkErr(es, ip, errText)
-				vert.Position = getVec4(positions, ndx1)
-				vert.Normal = getVec3(normals, ndx2)
+				v.normal = getVec3(mesh.Normals, ndx2)
 			} else {
 				ndx2 := ip.parseInt(es.scan())
 				ndx3 := ip.parseInt(es.scan())
 				checkErr(es, ip, errText)
-				vert.Position = getVec4(positions, ndx1)
-				vert.TexCoord = getVec3(texcoords, ndx2)
-				vert.Normal = getVec3(normals, ndx3)
+				v.texCoord = getVec3(mesh.TexCoords, ndx2)
+				v.normal = getVec3(mesh.Normals, ndx3)
 			}
 		default:
 			panic(errText)
 		}
-		face.Vertices = append(face.Vertices, vert)
+		verts = append(verts, v)
 	}
-
-	return face
+	return
 }
 
 func parseGroup(line string) {
@@ -234,21 +248,26 @@ func parseObject(line string) {
 
 }
 
-func LoadObj(filename string) []Face {
-	faces := make([]Face, 0, 20)
-	positions := make([]Vec4, 0, 20)
-	normals := make([]Vec3, 0, 20)
-	texcoords := make([]Vec3, 0, 20)
+func LoadObj(filename string) (err error, meshes []Mesh) {
+	meshes = make([]Mesh, 0, 20)
+	meshes = append(meshes, newMesh())
+
+	tempMesh := newMesh()
+
+	currMesh := 0
+	vCache := make(map[vertex]uint32)
 
 	file, err := os.Open(filename)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "Unable to open file:", filename)
+		return
 	}
 	defer file.Close()
 
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Fprintln(os.Stderr, "Error:", r)
+			err = fmt.Errorf("%v", r)
 		}
 	}()
 	scanner := bufio.NewScanner(file)
@@ -256,18 +275,18 @@ func LoadObj(filename string) []Face {
 		line := scanner.Text()
 		switch line[0] {
 		case 'v':
-			parseVertex(line, &positions, &normals, &texcoords)
+			parseVertex(line, &tempMesh)
 		case 'f':
-			faces = append(faces, parseFace(line, &positions, &normals, &texcoords))
+			addIndices(parseFace(line, &tempMesh), &meshes[currMesh], &vCache)
 		case 'g':
 			parseGroup(line)
 		case 'o':
 			parseObject(line)
 		}
 	}
-	if err := scanner.Err(); err != nil {
+	if err = scanner.Err(); err != nil {
 		fmt.Fprintln(os.Stderr, "Error reading file:", err)
 	}
 
-	return faces
+	return
 }
